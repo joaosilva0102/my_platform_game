@@ -2,6 +2,7 @@ import pygame
 import os
 import math
 import random
+from level import *
 
 pygame.init()
 pygame.font.init()
@@ -24,6 +25,36 @@ def load_sprites(dir1, dir2, width, height):
     
     return sprites
 
+def create_terrain():
+    
+    blocks = []
+    terrain_height = len(level_terrain)
+    terrain_width = len(level_terrain[0])
+    
+    IMG = load_sprites("images","ground", 64, 64)
+    
+    for row in range(len(level_terrain)):
+        for col in range(len(level_terrain[0])):
+            terrain_block = level_terrain[row][col]
+            if terrain_block == EMPTY:
+                continue
+            img = IMG[terrain_block]
+            x_pos = col * 64
+            y_pos = screen_height - (64 * (terrain_height - row))
+            block = Block(x_pos, y_pos, 64, 64, img)
+            blocks.append(block)
+
+    return blocks
+
+class Block(pygame.sprite.Sprite):
+    
+    def __init__(self, x_pos, y_pos, width, height, img):
+        super().__init__()
+        self.image = img
+        self.rect = self.image.get_rect()
+        self.rect.topleft = [x_pos, y_pos]
+        self.mask = pygame.mask.from_surface(self.image)
+
 class Player(pygame.sprite.Sprite):
     
     SPRITES = load_sprites("images", "player", 128, 128)
@@ -39,6 +70,8 @@ class Player(pygame.sprite.Sprite):
         self.x_vel = 0
         self.y_vel = 0
         self.fall_count = 0
+        self.mask = pygame.mask.from_surface(self.image)
+        self.jump_count = 0
     
     def move(self, dx, dy):
         self.rect.x += dx
@@ -60,8 +93,11 @@ class Player(pygame.sprite.Sprite):
         self.moving = False
     
     def loop(self):
-        self.y_vel += min(1, (self.fall_count / tick) * 1)
+        self.y_vel += min(1, (self.fall_count / tick) * 8)
+        if not self.moving:
+            self.x_vel = 0
         self.move(self.x_vel, self.y_vel)
+        self.fall_count += 1
             
     def update(self):
         self.loop()
@@ -75,24 +111,63 @@ class Player(pygame.sprite.Sprite):
                 self.current_sprite = 0
         else:
             self.current_sprite = 0
-        self.fall_count += 1
-        self.landed()
+        self.mask = pygame.mask.from_surface(self.image)
         
     def landed(self):
-        if self.rect.y >= screen_height:
-            self.fall_count = 0 
-            self.y_vel = 0
-  
+        self.fall_count = 0 
+        self.y_vel = 0
+        self.jump_count = 0
+        
+    def hit_head(self):
+        self.y_vel *= -1
+        
+    def collision_side(self):
+        self.x_vel = 0
+        
+    def jump(self):
+        self.y_vel = -2 * 6
+        self.current_sprite = 0
+        self.jump_count += 1
+        if self.jump_count == 1:
+            self.fall_count = 0
+        
                 
-def draw_win(sprites):
+def draw_win(player_sprites, ground_sprites):
     screen.blit(bg, (0,0))
-    sprites.draw(screen)
+    ground_sprites.draw(screen)
+    player_sprites.draw(screen)
     pygame.display.update()
 
+def handle_collisions(player, ground_sprites):
+    for block in ground_sprites:
+        collision_point = pygame.sprite.collide_mask(player, block)
+        if collision_point:
+            if player.y_vel > 0:
+                player.rect.bottom = block.rect.top + 17
+                player.landed()
+                
+def handle_horizontal_collisions(player, ground_sprites):
+    for block in ground_sprites:
+        collision_point = pygame.sprite.collide_mask(player, block)
+        if collision_point:
+            if player.rect.right > block.rect.left and player.x_vel > 0:
+                # Player collided with the left side of the block while moving right
+                player.rect.right = block.rect.left
+                player.collision_side()
+            elif player.rect.left < block.rect.right and player.x_vel < 0:
+                # Player collided with the right side of the block while moving left
+                player.rect.left = block.rect.right
+                player.collision_side()
+                
 def main():
-    sprites = pygame.sprite.Group()
+    player_sprites = pygame.sprite.Group()
     player = Player(100, 100, 32, 32)
-    sprites.add(player)
+    player_sprites.add(player)
+    
+    ground_sprites = pygame.sprite.Group()
+    terrain = create_terrain()
+    for block in terrain:
+        ground_sprites.add(block)
     
     running = True
     while running:
@@ -105,14 +180,19 @@ def main():
         key = pygame.key.get_pressed()
         if key[pygame.K_d]:
             player.move_right(10)
-        elif key[pygame.K_a]:
+        if key[pygame.K_a]:
             player.move_left(10)
-        else:
+        if key[pygame.K_SPACE] and player.jump_count == 0:
+            player.jump()
+            
+        if not True in key:
             player.idle()
-        
-        
-        sprites.update()
-        draw_win(sprites)
+
+        handle_collisions(player, ground_sprites)
+        handle_horizontal_collisions(player, ground_sprites)
+        ground_sprites.update()
+        player_sprites.update()
+        draw_win(player_sprites, ground_sprites)
     pygame.quit()
 
 if __name__ == "__main__":
